@@ -21,23 +21,25 @@ type Reporter struct {
 	Interval time.Duration
 	gcms     *cloudmonitoring.Service
 	project  string
+	source   string
 
 	gauges map[string]struct{}
 	//a fast and simple cache
 }
 
-func NewReporter(r metrics.Registry, i time.Duration, s *cloudmonitoring.Service, p string) *Reporter {
+func NewReporter(r metrics.Registry, i time.Duration, s *cloudmonitoring.Service, project, source string) *Reporter {
 	return &Reporter{
 		Registry: r,
 		Interval: i,
 		gcms:     s,
-		project:  p,
+		project:  project,
+		source:   source,
 		gauges:   make(map[string]struct{}),
 	}
 }
 
-func Monitor(r metrics.Registry, i time.Duration, s *cloudmonitoring.Service, p string) {
-	NewReporter(r, i, s, p).Run()
+func Monitor(r metrics.Registry, i time.Duration, s *cloudmonitoring.Service, project, source string) {
+	NewReporter(r, i, s, project, source).Run()
 }
 
 func (self *Reporter) Run() {
@@ -56,6 +58,7 @@ func (self *Reporter) Run() {
 
 		for _, req := range reqs {
 			wr := &cloudmonitoring.WriteTimeseriesRequest{}
+			wr.CommonLabels["Source"] = self.source
 			//Can only write one simple point at a time !
 			wr.Timeseries = append(wr.Timeseries, req)
 			_, err = tss.Write(self.project, wr).Do()
