@@ -9,6 +9,7 @@ package gcm
 import (
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"google.golang.org/api/cloudmonitoring/v2beta2"
@@ -69,9 +70,12 @@ func (self *Reporter) Run() {
 	}
 }
 
-var (
-	CustomMonitoringNamespace = "custom.cloudmonitoring.googleapis.com/"
-)
+func DotSlashes(name string) string {
+	return strings.Replace(name, ".", "/", -1)
+}
+func NamespacedName(name string) string {
+	return fmt.Sprintf("custom.cloudmonitoring.googleapis.com/%s", DotSlashes(name))
+}
 
 //https://cloud.google.com/monitoring/demos/wrap_write_lightweight_metric
 //https://cloud.google.com/monitoring/api/metrics
@@ -85,7 +89,7 @@ func (self *Reporter) BuildRequests(
 	r.Each(func(name string, metric interface{}) {
 		p := &cloudmonitoring.TimeseriesPoint{
 			TimeseriesDesc: &cloudmonitoring.TimeseriesDescriptor{
-				Metric:  CustomMonitoringNamespace + name,
+				Metric:  NamespacedName(name),
 				Project: self.project,
 			},
 			Point: &cloudmonitoring.Point{
@@ -123,7 +127,7 @@ func (self *Reporter) BuildRequests(
 				pts = append(pts,
 					&cloudmonitoring.TimeseriesPoint{
 						TimeseriesDesc: &cloudmonitoring.TimeseriesDescriptor{
-							Metric:  CustomMonitoringNamespace + name + ".mean",
+							Metric:  NamespacedName(name + ".mean"),
 							Project: self.project,
 						},
 						Point: &cloudmonitoring.Point{
@@ -138,7 +142,7 @@ func (self *Reporter) BuildRequests(
 				pts = append(pts,
 					&cloudmonitoring.TimeseriesPoint{
 						TimeseriesDesc: &cloudmonitoring.TimeseriesDescriptor{
-							Metric:  CustomMonitoringNamespace + name + ".1min",
+							Metric:  NamespacedName(name + ".1min"),
 							Project: self.project,
 						},
 						Point: &cloudmonitoring.Point{
@@ -153,7 +157,7 @@ func (self *Reporter) BuildRequests(
 				pts = append(pts,
 					&cloudmonitoring.TimeseriesPoint{
 						TimeseriesDesc: &cloudmonitoring.TimeseriesDescriptor{
-							Metric:  CustomMonitoringNamespace + name + ".5min",
+							Metric:  NamespacedName(name + ".5min"),
 							Project: self.project,
 						},
 						Point: &cloudmonitoring.Point{
@@ -168,7 +172,7 @@ func (self *Reporter) BuildRequests(
 				pts = append(pts,
 					&cloudmonitoring.TimeseriesPoint{
 						TimeseriesDesc: &cloudmonitoring.TimeseriesDescriptor{
-							Metric:  CustomMonitoringNamespace + name + ".15min",
+							Metric:  NamespacedName(name + ".15min"),
 							Project: self.project,
 						},
 						Point: &cloudmonitoring.Point{
@@ -201,11 +205,11 @@ func (r *Reporter) CreateGauge(name, valueType string) {
 		return
 	}
 	g := &cloudmonitoring.MetricDescriptor{
-		Name: CustomMonitoringNamespace + name,
+		Name: NamespacedName(name),
 		Labels: []*cloudmonitoring.MetricDescriptorLabelDescriptor{
 			&cloudmonitoring.MetricDescriptorLabelDescriptor{
 				Description: "",
-				Key:         CustomMonitoringNamespace + name,
+				Key:         NamespacedName(name),
 			},
 		},
 		TypeDescriptor: &cloudmonitoring.MetricDescriptorTypeDescriptor{
