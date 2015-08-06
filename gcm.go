@@ -58,8 +58,14 @@ func (self *Reporter) Run() {
 		}
 
 		for _, req := range reqs {
-			wr := &cloudmonitoring.WriteTimeseriesRequest{}
-			wr.CommonLabels["Source"] = self.source
+			wr := &cloudmonitoring.WriteTimeseriesRequest{
+				CommonLabels: map[string]string{
+					"0": "source",
+				},
+			}
+			req.TimeseriesDesc.Labels = map[string]string{
+				"source": DotSlashes(self.source),
+			}
 			//Can only write one simple point at a time !
 			wr.Timeseries = append(wr.Timeseries, req)
 			_, err = tss.Write(self.project, wr).Do()
