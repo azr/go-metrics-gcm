@@ -1,15 +1,16 @@
-//Provides a way to send your go-metrics to google cloud monitoring
+//Package gcm Provides a way to send your go-metrics to google cloud monitoring
 //
-// Histograms are not imoplemented yed because not available in custom metrics,
+// Histograms are not implemented yet because not available in custom metrics,
 // see https://cloud.google.com/monitoring/api/metrics#value-types
 //
-// Timer is a Todo
+// Timer is to do
 package gcm
 
 import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/api/cloudmonitoring/v2beta2"
@@ -17,10 +18,11 @@ import (
 	"github.com/rcrowley/go-metrics"
 )
 
+//Reporter reports your metrics to GC monitoring
 type Reporter struct {
-	Registry metrics.Registry
-	Interval time.Duration
-	gcms     *cloudmonitoring.Service
+	Registry metrics.Registry         // what metrics to report ?
+	Interval time.Duration            // report every ?
+	gcms     *cloudmonitoring.Service // report to that service
 	project  string
 	source   string
 
@@ -28,6 +30,14 @@ type Reporter struct {
 	//a fast and simple cache
 }
 
+var (
+	timersNotImplemented     sync.Once
+	histogramsNotImplemented sync.Once
+)
+
+//NewReporter instantiates a reporter that sends metrics to GC monitoring
+//source will be set labels as ["0":source]
+//to help identify the machine sending the data
 func NewReporter(r metrics.Registry, i time.Duration, s *cloudmonitoring.Service, project, source string) *Reporter {
 	return &Reporter{
 		Registry: r,
@@ -39,6 +49,7 @@ func NewReporter(r metrics.Registry, i time.Duration, s *cloudmonitoring.Service
 	}
 }
 
+//Monitor starts a new
 func Monitor(r metrics.Registry, i time.Duration, s *cloudmonitoring.Service, project, source string) {
 	NewReporter(r, i, s, project, source).Run()
 }
@@ -49,7 +60,6 @@ func (self *Reporter) Run() {
 	before := time.Now()
 	for now := range ticker {
 		now = time.Now()
-		fmt.Printf("Now: %s", now.Format(time.RFC3339))
 		reqs, err := self.BuildRequests(now.Format(time.RFC3339), before.Format(time.RFC3339), self.Registry)
 		before = now
 		if err != nil {
@@ -105,31 +115,50 @@ func (self *Reporter) BuildRequests(
 		}
 		switch m := metric.(type) {
 		case metrics.Counter:
-			if m.Count() == 0 {
+			v := m.Count()
+			if v == 0 {
 				return
 			}
-			p.Point.Int64Value = m.Count()
+			p.Point.Int64Value = &v
 			p.Point.Start = end
+			pts = append(pts, p)
 		case metrics.Gauge:
-			if m.Value() == 0 {
+			v := m.Value()
+			m = m.Snapshot()
+			if v == 0 {
 				return
 			}
 			self.CreateGauge(name, "int64")
-			p.Point.Int64Value = m.Value()
+			p.Point.Int64Value = &v
 			p.Point.Start = end
+			pts = append(pts, p)
 		case metrics.GaugeFloat64:
-			if m.Value() == 0 {
+			v := m.Value()
+			if v == 0 {
 				return
 			}
 			self.CreateGauge(name, "double")
-			p.Point.DoubleValue = m.Value()
+			p.Point.DoubleValue = &v
 			p.Point.Start = end
+			pts = append(pts, p)
 		case metrics.Meter:
 			m = m.Snapshot()
-			if m.Count() == 0 {
-				return
+			if v := m.Count(); v != 0 {
+				pts = append(pts,
+					&cloudmonitoring.TimeseriesPoint{
+						TimeseriesDesc: &cloudmonitoring.TimeseriesDescriptor{
+							Metric:  NamespacedName(name + ".count"),
+							Project: self.project,
+						},
+						Point: &cloudmonitoring.Point{
+							Start:      end,
+							End:        end,
+							Int64Value: &v,
+						},
+					},
+				)
 			}
-			if m.RateMean() != 0 {
+			if v := m.RateMean(); v != 0 {
 				pts = append(pts,
 					&cloudmonitoring.TimeseriesPoint{
 						TimeseriesDesc: &cloudmonitoring.TimeseriesDescriptor{
@@ -139,12 +168,12 @@ func (self *Reporter) BuildRequests(
 						Point: &cloudmonitoring.Point{
 							Start:       end,
 							End:         end,
-							DoubleValue: m.RateMean(),
+							DoubleValue: &v,
 						},
 					},
 				)
 			}
-			if m.Rate1() != 0 {
+			if v := m.Rate1(); v != 0 {
 				pts = append(pts,
 					&cloudmonitoring.TimeseriesPoint{
 						TimeseriesDesc: &cloudmonitoring.TimeseriesDescriptor{
@@ -154,12 +183,12 @@ func (self *Reporter) BuildRequests(
 						Point: &cloudmonitoring.Point{
 							Start:       end,
 							End:         end,
-							DoubleValue: m.Rate1(),
+							DoubleValue: &v,
 						},
 					},
 				)
 			}
-			if m.Rate5() != 0 {
+			if v := m.Rate5(); v != 0 {
 				pts = append(pts,
 					&cloudmonitoring.TimeseriesPoint{
 						TimeseriesDesc: &cloudmonitoring.TimeseriesDescriptor{
@@ -169,12 +198,12 @@ func (self *Reporter) BuildRequests(
 						Point: &cloudmonitoring.Point{
 							Start:       end,
 							End:         end,
-							DoubleValue: m.Rate5(),
+							DoubleValue: &v,
 						},
 					},
 				)
 			}
-			if m.Rate15() != 0 {
+			if v := m.Rate15(); v != 0 {
 				pts = append(pts,
 					&cloudmonitoring.TimeseriesPoint{
 						TimeseriesDesc: &cloudmonitoring.TimeseriesDescriptor{
@@ -184,24 +213,26 @@ func (self *Reporter) BuildRequests(
 						Point: &cloudmonitoring.Point{
 							Start:       end,
 							End:         end,
-							DoubleValue: m.Rate15(),
+							DoubleValue: &v,
 						},
 					},
 				)
 			}
-			return
 		case metrics.Histogram:
 			if m.Count() > 0 {
-				log.Printf("Histograms are not available in custom metrics, see https://cloud.google.com/monitoring/api/metrics#value-types")
+				histogramsNotImplemented.Do(func() {
+					log.Printf("Histograms are not available in custom metrics, see https://cloud.google.com/monitoring/api/metrics#value-types")
+				})
 			}
-			return
 		case metrics.Timer:
 			if m.Count() > 0 {
-				log.Printf("Timers are not implemented yet")
+				timersNotImplemented.Do(func() {
+					log.Printf("Timers are not implemented yet")
+				})
 			}
-			return
+		default:
+			log.Printf("unknown metric ? %#v", metric)
 		}
-		pts = append(pts, p)
 	})
 	return
 }
