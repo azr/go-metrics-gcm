@@ -35,12 +35,6 @@ type Config struct {
 	//if you add a label and then remove one also
 	//recreate metric to fix this
 	Labels map[string]string
-
-	// Type: Required. The monitored resource type. This field must match
-	// the type field of a MonitoredResourceDescriptor object. For example,
-	// the type of a Cloud SQL database is "cloudsql_database".
-	// see https://cloud.google.com/monitoring/api/resources for types
-	Type string
 }
 
 var (
@@ -49,7 +43,7 @@ var (
 )
 
 //Monitor starts a new single threaded monitoring process.
-//See Config for parameters explanation (s, project, resourceType, labels).
+//See Config for parameters explanation (s, project, labels).
 //
 //maxErrors is maximum number of retry if send fails, practical to not go over rate limits.
 //
@@ -67,12 +61,11 @@ var (
 //		if hostname == "" {
 //			hostname = "unknown-hostname"
 //		}
-//		go googlecloudmetrics.Monitor(metrics.DefaultRegistry, 15*time.Second, 3, s, gcpProject, "api", map[string]string{"source": hostname, "service": service})
-func Monitor(r metrics.Registry, tick time.Duration, maxErrors int, s *cloudmonitoring.Service, project, resourceType string, labels map[string]string) error {
+//		go googlecloudmetrics.Monitor(metrics.DefaultRegistry, 15*time.Second, 3, s, gcpProject, map[string]string{"source": hostname, "service": service})
+func Monitor(r metrics.Registry, tick time.Duration, maxErrors int, s *cloudmonitoring.Service, project string, labels map[string]string) error {
 	reporter := Config{
 		Service: s,
 		Project: "projects/" + project,
-		Type:    resourceType,
 	}
 	ticker := time.NewTicker(tick)
 	var errors int
@@ -130,7 +123,10 @@ func (config *Config) newTimeSeries(name string) *cloudmonitoring.TimeSeries {
 			Labels: config.Labels,
 		},
 		Resource: &cloudmonitoring.MonitoredResource{
-			Type: config.Type,
+			//Type global seems to be all right,
+			//any other setting like "api" did not work.
+			//https://cloud.google.com/monitoring/api/resources
+			Type: "global",
 		},
 	}
 }
