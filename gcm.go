@@ -35,6 +35,12 @@ type Config struct {
 	//if you add a label and then remove one also
 	//recreate metric to fix this
 	Labels map[string]string
+
+	// Type: Required. The monitored resource type. This field must match
+	// the type field of a MonitoredResourceDescriptor object. For example,
+	// the type of a Cloud SQL database is "cloudsql_database".
+	// see https://cloud.google.com/monitoring/api/resources for types
+	Type string
 }
 
 var (
@@ -43,6 +49,9 @@ var (
 )
 
 //Monitor starts a new single threaded monitoring process.
+//See Config for parameters explanation (s, project, resourceType, labels).
+//
+//maxErrors is maximum number of retry if send fails, practical to not go over rate limits.
 //
 //Example:
 //		client, err := google.DefaultClient(ctx, cloudmonitoring.MonitoringScope)
@@ -58,33 +67,47 @@ var (
 //		if hostname == "" {
 //			hostname = "unknown-hostname"
 //		}
-//		go googlecloudmetrics.Monitor(metrics.DefaultRegistry, 3*time.Second, s, gcpProject, map[string]string{"source": hostname})
-func Monitor(r metrics.Registry, tick time.Duration, s *cloudmonitoring.Service, project string, labels map[string]string) {
+//		go googlecloudmetrics.Monitor(metrics.DefaultRegistry, 15*time.Second, 3, s, gcpProject, "api", map[string]string{"source": hostname, "service": service})
+func Monitor(r metrics.Registry, tick time.Duration, maxErrors int, s *cloudmonitoring.Service, project, resourceType string, labels map[string]string) error {
 	reporter := Config{
 		Service: s,
 		Project: "projects/" + project,
+		Type:    resourceType,
 	}
-	for range time.Tick(tick) {
-		reporter.Report(r)
+	ticker := time.NewTicker(tick)
+	var errors int
+	var err error
+	for range ticker.C {
+		err = reporter.Report(r)
+		if err != nil {
+			log.Printf("ERROR %d reporting metrics to gcm: %s", errors, err)
+			errors++
+		} else {
+			errors = 0
+		}
+
+		if errors >= maxErrors {
+			ticker.Stop()
+			log.Printf("GCM got %d successive errors, leaving", maxErrors)
+		}
 	}
+	return err
 }
 
 //Report every metric from r to gcm
-func (config *Config) Report(r metrics.Registry) {
+func (config *Config) Report(r metrics.Registry) error {
 	now := time.Now()
 	reqs, err := config.buildTimeSeries(now.Format(time.RFC3339), r)
 	if err != nil {
 		log.Printf("ERROR sending gcm request %s", err)
-		return
+		return err
 	}
 
 	wr := &cloudmonitoring.CreateTimeSeriesRequest{
 		TimeSeries: reqs,
 	}
 	_, err = cloudmonitoring.NewProjectsTimeSeriesService(config.Service).Create(config.Project, wr).Do()
-	if err != nil {
-		log.Printf("ERROR sending metrics to gcm %s", err)
-	}
+	return err
 }
 
 //DotSlashes makes golang metrics look like gcm metrics.
@@ -106,9 +129,8 @@ func (config *Config) newTimeSeries(name string) *cloudmonitoring.TimeSeries {
 			Type:   customMetric(name),
 			Labels: config.Labels,
 		},
-		// ValueType: "int64",
 		Resource: &cloudmonitoring.MonitoredResource{
-			Type: "global", // a good default
+			Type: config.Type,
 		},
 	}
 }
