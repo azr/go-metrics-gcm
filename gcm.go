@@ -41,6 +41,9 @@ type Config struct {
 	//
 	//setting a nil MonitoredRessource will default
 	//to a "GlobalMonitoredResource" resource type.
+	//
+	//setting for MonitoredRessource can change without
+	//you having to recreate the metric.
 	MonitoredRessource *cloudmonitoring.MonitoredResource
 }
 
