@@ -27,25 +27,36 @@ type Config struct {
 	//you might want to set it to `projects/` + project name
 	//when creating the reporter manually
 	Project string
+
 	//Labels to send along with queries,
 	//usefull to know who sent what ex: ["source":$HOSTNAME].
 	//labels are created on the first query,
-	//if you start with no label then add some,
-	//gcm will complain.
-	//if you add a label and then remove one also
-	//recreate metric to fix this
+	//to add or remove a label you need to recreate metric.
 	Labels map[string]string
+
+	//MonitoredRessource identifies the matchine/service/resource
+	//that is monitored.
+	//Different possible settings are defined here:
+	//https://cloud.google.com/monitoring/api/resources
+	//
+	//setting a nil MonitoredRessource will default
+	//to a "GlobalMonitoredResource" resource type.
+	MonitoredRessource *cloudmonitoring.MonitoredResource
 }
 
 var (
 	timersNotImplemented     sync.Once
 	histogramsNotImplemented sync.Once
+	//GlobalMonitoredResource is the default monitored
+	//resource that will be sent with the metrics
+	//it doesn't allow much specification
+	GlobalMonitoredResource = &cloudmonitoring.MonitoredResource{Type: "global"}
 )
 
 //Monitor starts a new single threaded monitoring process.
-//See Config for parameters explanation (s, project, labels).
+//See Config for parameters explanation (service, project, labels, monitoredRessource).
 //
-//maxErrors is maximum number of retry if send fails, practical to not go over rate limits.
+//maxErrors is maximum number of consecutive retries if send fails.
 //
 //Example:
 //		client, err := google.DefaultClient(ctx, cloudmonitoring.MonitoringScope)
@@ -61,11 +72,16 @@ var (
 //		if hostname == "" {
 //			hostname = "unknown-hostname"
 //		}
-//		go googlecloudmetrics.Monitor(metrics.DefaultRegistry, 15*time.Second, 3, s, gcpProject, map[string]string{"source": hostname, "service": service})
-func Monitor(r metrics.Registry, tick time.Duration, maxErrors int, s *cloudmonitoring.Service, project string, labels map[string]string) error {
+//		go googlecloudmetrics.Monitor(metrics.DefaultRegistry, 15*time.Second, 3, s, gcpProject, map[string]string{"source": hostname, "service": service}, nil)
+func Monitor(r metrics.Registry, tick time.Duration, maxErrors int, service *cloudmonitoring.Service, project string, labels map[string]string, monitoredRessource *cloudmonitoring.MonitoredResource) error {
+	if monitoredRessource == nil {
+		monitoredRessource = GlobalMonitoredResource
+	}
 	reporter := Config{
-		Service: s,
-		Project: "projects/" + project,
+		Service:            service,
+		Project:            "projects/" + project,
+		Labels:             labels,
+		MonitoredRessource: monitoredRessource,
 	}
 	ticker := time.NewTicker(tick)
 	var errors int
@@ -87,10 +103,10 @@ func Monitor(r metrics.Registry, tick time.Duration, maxErrors int, s *cloudmoni
 	return err
 }
 
-//Report every metric from r to gcm
-func (config *Config) Report(r metrics.Registry) error {
+//Report every metric from registry to gcm
+func (config *Config) Report(registry metrics.Registry) error {
 	now := time.Now()
-	reqs, err := config.buildTimeSeries(now.Format(time.RFC3339), r)
+	reqs, err := config.buildTimeSeries(now.Format(time.RFC3339), registry)
 	if err != nil {
 		log.Printf("ERROR sending gcm request %s", err)
 		return err
@@ -117,17 +133,17 @@ func customMetric(name string) string {
 
 //newTimeSeries creates a time serie named 'name' with labels from Config.
 func (config *Config) newTimeSeries(name string) *cloudmonitoring.TimeSeries {
+	if config.MonitoredRessource == nil {
+		//global doesn't allow much settings
+		//but is a working default
+		config.MonitoredRessource = GlobalMonitoredResource
+	}
 	return &cloudmonitoring.TimeSeries{
 		Metric: &cloudmonitoring.Metric{
 			Type:   customMetric(name),
 			Labels: config.Labels,
 		},
-		Resource: &cloudmonitoring.MonitoredResource{
-			//Type global seems to be all right,
-			//any other setting like "api" did not work.
-			//https://cloud.google.com/monitoring/api/resources
-			Type: "global",
-		},
+		Resource: config.MonitoredRessource,
 	}
 }
 
