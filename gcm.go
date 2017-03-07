@@ -15,6 +15,8 @@ import (
 
 	cloudmonitoring "google.golang.org/api/monitoring/v3"
 
+	"encoding/json"
+
 	"github.com/rcrowley/go-metrics"
 )
 
@@ -119,7 +121,8 @@ func (config *Config) Report(registry metrics.Registry) error {
 	}
 	_, err = cloudmonitoring.NewProjectsTimeSeriesService(config.Service).Create(config.Project, wr).Do()
 	if err != nil {
-		log.Printf("ERROR reporting metrics to gcm: %s.Req: %#v", err, wr)
+		b, _ := json.Marshal(wr)
+		log.Printf("ERROR reporting metrics to gcm: %s.Req: %s", err, b)
 	}
 	return err
 }
