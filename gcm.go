@@ -92,7 +92,6 @@ func Monitor(r metrics.Registry, tick time.Duration, maxErrors int, service *clo
 	for range ticker.C {
 		err = reporter.Report(r)
 		if err != nil {
-			log.Printf("ERROR %d reporting metrics to gcm: %s", errors, err)
 			errors++
 		} else {
 			errors = 0
@@ -119,6 +118,9 @@ func (config *Config) Report(registry metrics.Registry) error {
 		TimeSeries: reqs,
 	}
 	_, err = cloudmonitoring.NewProjectsTimeSeriesService(config.Service).Create(config.Project, wr).Do()
+	if err != nil {
+		log.Printf("ERROR reporting metrics to gcm: %s.Req: %#v", err, wr)
+	}
 	return err
 }
 
