@@ -116,6 +116,11 @@ func (config *Config) Report(registry metrics.Registry) error {
 		return err
 	}
 
+	if len(reqs) == 0 {
+		// nothing to send
+		return nil
+	}
+
 	wr := &cloudmonitoring.CreateTimeSeriesRequest{
 		TimeSeries: reqs,
 	}
